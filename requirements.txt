@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+websockets      # uvicorn needs this for the /ws route; it 404s without it
+fpdf2
+python-multipart
+httpx

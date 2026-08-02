@@ -1,0 +1,267 @@
+<!doctype html>
+<!--
+  AI Roundtable 项目主页 — Copyright (C) 2026 QZXP27
+  Licensed under the GNU Affero General Public License v3 or later.
+  Source: https://github.com/QZXP27/ai-roundtable
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 圆桌辩论 — 让四个大模型替你把问题吵清楚</title>
+<meta name="description" content="本地自建的多模型辩论室：Claude、Gemini、ChatGPT、DeepSeek 各持立场互相辩论，每轮判定共识程度并指出关键分歧，最后给出一个明确结论。">
+<style>
+  :root{
+    --bg:#101418; --panel:#1a2129; --panel2:#212a34; --border:#2e3a46;
+    --text:#e8edf2; --muted:#8fa0b0; --accent:#4da3ff; --accent-text:#06121f;
+    --claude:#d97757; --gemini:#4d8df6; --openai:#5fbf8f; --deepseek:#a07cf0;
+    --ok:#2f9e5e; --warn:#d08a2c; --hot:#c8543f;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f4f6f9; --panel:#ffffff; --panel2:#eef1f5; --border:#d7dee6;
+      --text:#1a222c; --muted:#5c6b7a; --accent:#2f6fe0; --accent-text:#ffffff;
+      --claude:#b8552a; --gemini:#2f6fe0; --openai:#1f8f5c; --deepseek:#7048c4;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6f9; --panel:#ffffff; --panel2:#eef1f5; --border:#d7dee6;
+    --text:#1a222c; --muted:#5c6b7a; --accent:#2f6fe0; --accent-text:#ffffff;
+    --claude:#b8552a; --gemini:#2f6fe0; --openai:#1f8f5c; --deepseek:#7048c4;
+  }
+  :root[data-theme="dark"]{
+    --bg:#101418; --panel:#1a2129; --panel2:#212a34; --border:#2e3a46;
+    --text:#e8edf2; --muted:#8fa0b0; --accent:#4da3ff; --accent-text:#06121f;
+    --claude:#d97757; --gemini:#4d8df6; --openai:#5fbf8f; --deepseek:#a07cf0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.75 -apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:0 20px}
+  a{color:var(--accent)}
+  code{background:var(--panel2);border:1px solid var(--border);border-radius:5px;
+    padding:1px 5px;font:13px/1.5 ui-monospace,Menlo,monospace}
+  pre{background:var(--panel2);border:1px solid var(--border);border-radius:10px;
+    padding:14px 16px;overflow-x:auto}
+  pre code{background:none;border:none;padding:0;white-space:pre}
+  h2{font-size:22px;margin:56px 0 14px;letter-spacing:-.01em}
+  h3{font-size:16px;margin:28px 0 8px}
+  p{margin:12px 0}
+
+  header{padding:72px 0 8px;text-align:center}
+  h1{font-size:38px;line-height:1.3;margin:0 0 14px;letter-spacing:-.02em}
+  .tag{color:var(--muted);font-size:17px;margin:0 auto;max-width:560px}
+  .cta{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:30px 0 8px}
+  .btn{display:inline-block;background:var(--accent);color:var(--accent-text);
+    text-decoration:none;font-weight:600;font-size:14px;padding:11px 20px;border-radius:9px}
+  .btn.sec{background:var(--panel2);color:var(--text);border:1px solid var(--border);font-weight:400}
+
+  .models{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:26px 0 0}
+  .chip{font-size:12px;font-weight:600;padding:4px 12px;border-radius:99px;color:#fff}
+  .chip.c{background:var(--claude)} .chip.g{background:var(--gemini)}
+  .chip.o{background:var(--openai)} .chip.d{background:var(--deepseek)}
+
+  .lead{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);
+    border-radius:12px;padding:20px 22px;margin:40px 0}
+  .lead p:first-child{margin-top:0} .lead p:last-child{margin-bottom:0}
+
+  figure{margin:22px 0}
+  figure img{width:100%;border:1px solid var(--border);border-radius:12px;display:block}
+  figcaption{color:var(--muted);font-size:13px;text-align:center;margin-top:8px}
+  .shot-ph{background:var(--panel2);border:1px dashed var(--border);border-radius:12px;
+    padding:52px 20px;text-align:center;color:var(--muted);font-size:13px}
+
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:13px}
+  .scroll{overflow-x:auto}
+
+  .conv{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;
+    border-radius:99px;color:#fff;letter-spacing:.03em}
+  .conv.u{background:var(--ok)} .conv.l{background:var(--gemini)}
+  .conv.s{background:var(--warn)} .conv.c{background:var(--hot)}
+
+  details{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    padding:12px 16px;margin:10px 0}
+  summary{cursor:pointer;font-weight:600;font-size:15px}
+  details p:last-child{margin-bottom:0}
+
+  footer{margin:72px 0 48px;padding-top:24px;border-top:1px solid var(--border);
+    color:var(--muted);font-size:13px;text-align:center}
+  #themeBtn{position:fixed;top:14px;right:14px;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:8px;padding:7px 12px;font:inherit;
+    font-size:13px;cursor:pointer}
+  @media (max-width:600px){
+    h1{font-size:28px} header{padding:52px 0 4px} h2{font-size:19px;margin:44px 0 12px}
+  }
+</style>
+</head>
+<body>
+<button id="themeBtn" onclick="toggleTheme()">切换主题</button>
+
+<header class="wrap">
+  <h1>AI 圆桌辩论</h1>
+  <p class="tag">让四个大模型互相辩论同一个问题，然后给你<strong>一个明确的结论</strong>——而不是四份需要你自己去比较的答案。</p>
+  <div class="models">
+    <span class="chip c">Claude</span>
+    <span class="chip g">Gemini</span>
+    <span class="chip o">ChatGPT</span>
+    <span class="chip d">DeepSeek</span>
+  </div>
+  <div class="cta">
+    <a class="btn" href="https://github.com/QZXP27/ai-roundtable">在 GitHub 上查看</a>
+    <a class="btn sec" href="https://github.com/QZXP27/ai-roundtable#readme">English README</a>
+  </div>
+</header>
+
+<main class="wrap">
+
+<h2>它解决什么问题</h2>
+
+<p>问一个模型，你得到一个视角。问四个模型，你得到四个视角——然后你要自己判断听谁的。<strong>这反而更累了。</strong></p>
+
+<p>这个项目的做法不一样：它让四个模型各自扮演指定立场，针对<em>彼此</em>最有力的论点正面交锋，你只需要在旁边主持。真正的比较由系统完成，不是丢给你。</p>
+
+<div class="lead">
+  <p><strong>选择悖论的关键在于「筛选」，而不在于「信息」。</strong>让人痛苦的是需要你亲自评估的选项数量，而不是可参考的证据数量。200 款酒的酒单让人崩溃；一位品过全部 200 款、只递给你一杯的侍酒师，则完全相反。选项空间一样，体验截然不同。</p>
+  <p>这个系统扮演的是侍酒师。</p>
+</div>
+
+<p>具体靠三个机制：</p>
+
+<h3>1. 每轮判定共识程度</h3>
+<p>模型们是真的达成一致，还是仍在僵持？系统会明确标注：</p>
+<p>
+  <span class="conv u">一致</span>
+  <span class="conv l">倾向明显</span>
+  <span class="conv s">两派对立</span>
+  <span class="conv c">仍有争议</span>
+</p>
+<p>一致就快速拍板，不必再想；有争议才值得你花时间。</p>
+
+<h3>2. 指出唯一的关键分歧（Crux）</h3>
+<p>每轮总结会指出：<strong>哪一个子问题一旦解决，整场分歧就结束了。</strong>你要判断的东西从「这件事该不该做」缩小到「这一个点我怎么权衡」。而那个点，往往取决于你的风险偏好、时间跨度或只有你知道的信息——模型给不了，也不该假装给得了。</p>
+
+<h3>3. 结尾必须表态</h3>
+<p>收尾时系统必须先给出<strong>一句话的明确建议</strong>，再附上置信度（高／中／低）和「什么情况会推翻这个判断」。如果问题很接近，它也必须选一边，然后把置信度标低——这比和稀泥有用得多。</p>
+
+<p>下面是一场真实辩论（集中持股 vs 分散持股）的实际输出：</p>
+
+<pre><code><strong>Crux</strong> — 深入的个股研究，能否把选中长期赢家的基准概率
+提高到足以抵消单一持仓 20% 仓位的尾部风险？
+
+<strong>Convergence:</strong> contested</code></pre>
+
+<pre><code><strong>Decision</strong> — 以分散为默认（30 只那一端）；若要集中，
+把 5 只高信心标的作为卫星仓位，上限约占组合 20%。
+
+<strong>Confidence:</strong> medium — 双方并未收敛，但让步是单向的：
+反方直接承认了「可管理性」这一点，而正方始终没有回应
+尾部风险和 Bessembinder 的论据。</code></pre>
+
+<h2>界面</h2>
+
+<figure>
+  <div class="shot-ph" id="shot1">截图待补充 · docs/img/debate.png</div>
+  <figcaption>辩论进行中——每位参与者按其模型着色，主持人可随时插话</figcaption>
+</figure>
+
+<figure>
+  <div class="shot-ph" id="shot2">截图待补充 · docs/img/verdict.png</div>
+  <figcaption>每轮总结带共识标签，收尾给出明确结论</figcaption>
+</figure>
+
+<h2>三步开始</h2>
+
+<pre><code>git clone https://github.com/QZXP27/ai-roundtable.git
+cd ai-roundtable
+python3 -m venv .venv &amp;&amp; .venv/bin/pip install -r requirements.txt
+./.venv/bin/python server.py</code></pre>
+
+<p>然后打开 <code>http://localhost:8500</code>，在侧边栏的「账号」面板里连接你要用的模型。<strong>至少连两个即可开始</strong>——没连上的那位只会显示一条错误提示，不会中断整场辩论。</p>
+
+<h2>四个模型，成本如何</h2>
+
+<div class="scroll">
+<table>
+  <tr><th>模型</th><th>接入方式</th><th>费用</th></tr>
+  <tr><td>Claude</td><td>Claude Code CLI</td><td>走 Claude Pro/Max 订阅</td></tr>
+  <tr><td>Gemini</td><td>Antigravity CLI (<code>agy</code>)</td><td>走 Google 账号 Gemini 订阅</td></tr>
+  <tr><td>ChatGPT</td><td>Codex CLI</td><td>走 ChatGPT 账号（免费档也能用）</td></tr>
+  <tr><td>DeepSeek</td><td>API 密钥</td><td>按量计费，一整场约几分钱</td></tr>
+</table>
+</div>
+
+<p>前三家通过官方命令行工具运行，用的是你<strong>已经付过钱的订阅</strong>，不额外花钱、也不需要 API 密钥。DeepSeek 是唯一的例外：它没有订阅制命令行工具，所以走 API——但 <code>deepseek-v4-flash</code> 每百万 token 输入 ¥1 左右、输出 ¥2 左右，跑完一整场辩论也就几分钱。</p>
+
+<p>特意加入 DeepSeek 的理由不只是便宜：<strong>它不是西方实验室训练的模型。</strong>Claude、Gemini、GPT 的训练语料和对齐方式高度相似，它们意见一致时，这个「一致」可能只是共享了同一个盲区。加一个训练分布明显不同的模型，共识才更有含金量，分歧也更可能是真信号。</p>
+
+<h2>许可证：AGPL-3.0</h2>
+
+<p>本项目采用 <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU AGPL-3.0</a>。用大白话说：</p>
+
+<table>
+  <tr><td>✅ 可以</td><td>自由使用、修改、自己部署，也可以商用</td></tr>
+  <tr><td>⚠️ 但是</td><td>任何衍生版本都必须<strong>公开源码</strong>并保留原作者署名</td></tr>
+  <tr><td>⚠️ 注意</td><td>「网络条款」：即使你只是把改过的版本<strong>做成网站给别人用</strong>（没有分发代码），也必须向使用者提供源码</td></tr>
+</table>
+
+<p>选 AGPL 而不是 MIT，是因为我希望大家能自由地用它、改它、在它基础上做更多东西——但不希望有人把它闭源拿走当成自己的产品。<strong>欢迎 fork、欢迎提 PR、欢迎拿去改成你自己需要的样子</strong>，只要保持开源就好。</p>
+
+<h2>常见问题</h2>
+
+<details>
+  <summary>需要 API 密钥吗？</summary>
+  <p>前三个模型不需要——它们走各自命令行工具已经登录的订阅身份。只有 DeepSeek 需要一个 API 密钥，而且它是可选的：不配也能正常用其余三个。</p>
+</details>
+
+<details>
+  <summary>我的对话内容会上传到哪里吗？</summary>
+  <p>不会。服务只监听 <code>127.0.0.1</code>（本机），所有记录以 JSON 保存在本地 <code>transcripts/</code> 目录，该目录已被 gitignore。内容只会发给你自己连接的那几个模型供应商。</p>
+</details>
+
+<details>
+  <summary>必须是 macOS 吗？</summary>
+  <p>不必。核心功能在任何能跑 Python 的系统上都可用。只有两项会降级：PDF 导出的中文字体（默认读取 macOS 的 STHeiti，缺失时中文无法渲染，改一下字体常量即可）和 PDF 参考资料上传（依赖 <code>pdftotext</code>）。</p>
+</details>
+
+<details>
+  <summary>可以只用两个模型吗？三个以上呢？</summary>
+  <p>都可以。最少两位参与者，上限没有限制，甚至可以让同一个模型扮演两个不同立场。</p>
+</details>
+
+<details>
+  <summary>我改的提示词和角色设定会被提交到 git 吗？</summary>
+  <p>不会。你保存的角色阵容写入 <code>personas.local.json</code>，自定义提示词写入 <code>prompts.local.json</code>，两者都已 gitignore。仓库里只有通用的默认配置，所以你的个人设置既不会被误传，也不会在 <code>git pull</code> 时被覆盖。</p>
+</details>
+
+</main>
+
+<footer class="wrap">
+  <p>AI Roundtable · AGPL-3.0 · <a href="https://github.com/QZXP27/ai-roundtable">github.com/QZXP27/ai-roundtable</a></p>
+</footer>
+
+<script>
+  // 跟随系统，也允许手动覆盖并记住选择
+  const saved = localStorage.getItem("theme");
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+  function toggleTheme(){
+    const cur = document.documentElement.getAttribute("data-theme")
+      || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    const next = cur === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("theme", next);
+  }
+  // 截图到位后自动替换占位块；没有就保持占位，页面照常可用
+  [["shot1","img/debate.png"],["shot2","img/verdict.png"]].forEach(([id, src]) => {
+    const img = new Image();
+    img.onload = () => {
+      const ph = document.getElementById(id);
+      if (ph) { img.alt = ph.textContent; ph.replaceWith(img); }
+    };
+    img.src = src;
+  });
+</script>
+</body>
+</html>

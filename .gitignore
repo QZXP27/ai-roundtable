@@ -1,0 +1,9 @@
+.venv/
+transcripts/
+__pycache__/
+
+# Your own presets and prompt tuning. Kept out of git so a personal debate
+# lineup can never be committed by accident, and so your setup survives a
+# `git pull`. The app ships working defaults in personas.default.json.
+*.local.json
+personas.json

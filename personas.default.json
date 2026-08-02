@@ -1,0 +1,42 @@
+[
+ {
+  "name": "Default",
+  "participants": [
+   {
+    "name": "Advocate",
+    "provider": "claude",
+    "model": "sonnet",
+    "persona": "Argue the strongest good-faith case FOR the proposition. Steelman it with evidence."
+   },
+   {
+    "name": "Skeptic",
+    "provider": "gemini",
+    "model": "gemini-3.6-flash-high",
+    "persona": "Challenge every claim. Hunt for weak assumptions, missing evidence, and tail risks."
+   }
+  ]
+ },
+ {
+  "name": "Three-way",
+  "participants": [
+   {
+    "name": "Advocate",
+    "provider": "claude",
+    "model": "sonnet",
+    "persona": "Argue the strongest good-faith case FOR the proposition. Steelman it with evidence."
+   },
+   {
+    "name": "Skeptic",
+    "provider": "gemini",
+    "model": "gemini-3.6-flash-high",
+    "persona": "Challenge every claim. Hunt for weak assumptions, missing evidence, and tail risks."
+   },
+   {
+    "name": "Outsider",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "persona": "Break the frame. Question what both sides are taking for granted, and raise considerations neither has thought to mention."
+   }
+  ]
+ }
+]

@@ -1,0 +1,600 @@
+<!doctype html>
+<!--
+  AI Roundtable — a local multi-model debate chatroom.
+  Copyright (C) 2026 QZXP27
+
+  Licensed under the GNU Affero General Public License v3 or later.
+  Distributed WITHOUT ANY WARRANTY. See <https://www.gnu.org/licenses/agpl-3.0.html>.
+  If you run a modified version and let others use it over a network, the
+  AGPL requires you to offer them its source.
+  Source: https://github.com/QZXP27/ai-roundtable
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Roundtable</title>
+<style>
+  :root{
+    --bg:#101418; --panel:#1a2129; --panel2:#212a34; --border:#2e3a46;
+    --text:#e8edf2; --muted:#8fa0b0; --accent:#4da3ff; --accent-text:#06121f;
+    --claude:#d97757; --gemini:#4d8df6; --openai:#5fbf8f; --deepseek:#a07cf0; --mod:#57c07a;
+    --danger:#f08c8c;
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6f9; --panel:#ffffff; --panel2:#eef1f5; --border:#d7dee6;
+    --text:#1a222c; --muted:#5c6b7a; --accent:#2f6fe0; --accent-text:#ffffff;
+    --claude:#b8552a; --gemini:#2f6fe0; --openai:#1f8f5c; --deepseek:#7048c4; --mod:#1f8f4e;
+    --danger:#c0392b;
+  }
+  *{box-sizing:border-box} html,body{height:100%}
+  body{margin:0;font:15px/1.5 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);display:flex}
+
+  /* ---------- sidebar / setup ---------- */
+  #side{width:340px;min-width:340px;background:var(--panel);border-right:1px solid var(--border);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+  #side h1{font-size:17px;margin:0}
+  #side h1 small{color:var(--muted);font-weight:400;display:block;font-size:12px}
+  #headerToggles{display:flex;gap:6px}
+  #headerToggles .btn{flex:1}
+  label{font-size:12px;color:var(--muted);display:block;margin-bottom:3px}
+  textarea,input,select{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px;font:inherit;font-size:13px}
+  textarea{resize:vertical}
+  input[type=file]{padding:6px}
+  .prow{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
+  .prow .top{display:flex;gap:6px}
+  .prow input[name=pname]{flex:1}
+  .prow select{width:auto;flex:1}
+  .prow button.del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;padding:0 4px}
+  .hitem{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 8px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .hitem:hover{border-color:var(--accent)}
+  .hitem .hbody{min-width:0;flex:1}
+  .hitem .htopic{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hitem .hmeta{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hitem button.del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 4px;flex:none}
+  button.btn{background:var(--accent);color:var(--accent-text);border:none;border-radius:8px;padding:9px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  button.btn.sec{background:var(--panel2);color:var(--text);border:1px solid var(--border);font-weight:400}
+  button.btn:disabled{opacity:.4;cursor:default}
+  .rowbtns{display:flex;gap:8px}
+  .rowbtns .btn{flex:1}
+  #refStatus{color:var(--muted);font-size:11px;margin-top:4px}
+
+  /* ---------- chat ---------- */
+  #main{flex:1;display:flex;flex-direction:column;min-width:0}
+  #status{padding:8px 16px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);display:flex;gap:10px;align-items:center}
+  #statedot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+  #statedot.live{background:var(--mod);animation:pulse 1.2s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  #chat{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:14px}
+  .msg{max-width:76%;padding:10px 14px;border-radius:14px;background:var(--panel2);border:1px solid var(--border);white-space:pre-wrap;overflow-wrap:break-word}
+  .msg .who{font-size:12px;font-weight:700;margin-bottom:4px;display:flex;gap:6px;align-items:center}
+  .msg .who .badge{font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;color:#fff;opacity:.85}
+  .msg.claude{border-left:3px solid var(--claude)} .msg.claude .badge{background:var(--claude)}
+  .msg.gemini{border-left:3px solid var(--gemini)} .msg.gemini .badge{background:var(--gemini)}
+  .msg.openai{border-left:3px solid var(--openai)} .msg.openai .badge{background:var(--openai)}
+  .msg.deepseek{border-left:3px solid var(--deepseek)} .msg.deepseek .badge{background:var(--deepseek)}
+  /* How settled the round was — green means the moderator can move on. */
+  .conv{font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;color:#fff;text-transform:uppercase;letter-spacing:.04em}
+  .conv.unanimous{background:#2f9e5e} .conv.leaning{background:#3f8bd4}
+  .conv.split{background:#d08a2c} .conv.contested{background:#c8543f}
+  .msg.moderator{align-self:flex-end;background:#173123;border:1px solid #2b5b3d}
+  :root[data-theme="light"] .msg.moderator{background:#e5f5ea;border:1px solid #bfe3c9}
+  .msg.summary,.msg.verdict{align-self:center;max-width:92%;width:92%;background:#1c2431;border:1px solid #37507a}
+  :root[data-theme="light"] .msg.summary,:root[data-theme="light"] .msg.verdict{background:#eaf0fb;border:1px solid #b9caeb}
+  .msg.verdict{border-color:#8a6d2f;background:#2a2318}
+  :root[data-theme="light"] .msg.verdict{border-color:#d8b962;background:#fbf3e0}
+  .msg.system{align-self:center;background:none;border:none;color:var(--muted);font-size:12px;padding:2px}
+  .msg.error{align-self:center;color:#f08c8c;font-size:13px}
+  #thinking{padding:0 20px 8px;color:var(--muted);font-size:13px;height:24px}
+  #thinking .dots::after{content:"…";animation:pulse 1s infinite}
+
+  /* ---------- accounts ---------- */
+  .acct{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px}
+  .acct .adot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+  .acct .adot.connected{background:var(--mod)}
+  .acct .adot.not_connected{background:#e0b04a}
+  .acct .adot.not_installed{background:var(--danger)}
+  .acct .abody{flex:1;min-width:0}
+  .acct .aname{font-weight:600;font-size:13px}
+  .acct .adesc{color:var(--muted);font-size:11px}
+  .acct button{flex:none;padding:5px 10px;font-size:12px}
+  #modalWrap{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;align-items:center;justify-content:center}
+  #modalWrap.open{display:flex}
+  #loginModal{background:var(--panel);border:1px solid var(--border);border-radius:12px;width:520px;max-width:90vw;max-height:80vh;display:flex;flex-direction:column;padding:16px;gap:10px}
+  #loginModal h2{margin:0;font-size:15px}
+  #loginModal .sub{color:var(--muted);font-size:12px}
+  #loginCmdRow{display:flex;gap:8px;align-items:center}
+  #loginCmd{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px;font:13px/1.5 ui-monospace,Menlo,monospace;user-select:all;overflow-x:auto;white-space:nowrap}
+  #copyCmdBtn{flex:none}
+  #loginStatus{font-size:12px;color:var(--muted);min-height:18px}
+  #loginStatus.ok{color:var(--mod)} #loginStatus.fail{color:var(--danger)}
+
+  /* ---------- composer ---------- */
+  #composer{border-top:1px solid var(--border);padding:12px 16px;display:flex;gap:8px;align-items:flex-end}
+  #composer textarea{flex:1;height:44px;max-height:140px}
+  .md{font-size:inherit}
+  .md p{margin:.4em 0} .md strong{color:var(--text)}
+  #srcLink{margin:2px 0 10px;font-size:11px}
+  #srcLink a{color:var(--muted);text-decoration:none} #srcLink a:hover{color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="side">
+  <h1>
+    <span id="appTitleText">AI Roundtable</span>
+    <small id="appSubtitle"></small>
+  </h1>
+  <div id="headerToggles">
+    <button class="btn sec" id="themeToggle" onclick="toggleTheme()"></button>
+    <button class="btn sec" id="langToggle" onclick="toggleLang()"></button>
+  </div>
+  <!-- AGPL §13: anyone offering a modified version over a network must offer
+       its source. Keeping the link in the UI makes that obligation visible. -->
+  <div id="srcLink"><a href="https://github.com/QZXP27/ai-roundtable" target="_blank" rel="noopener"></a></div>
+  <div>
+    <label id="lbl-accounts">Accounts</label>
+    <div id="accounts" style="display:flex;flex-direction:column;gap:6px"></div>
+  </div>
+  <div>
+    <label id="lbl-presets">Presets</label>
+    <div id="presetList" style="display:flex;flex-direction:column;gap:6px"></div>
+    <button class="btn sec" id="savePresetBtn" style="margin-top:8px;width:100%" onclick="savePreset()"></button>
+  </div>
+  <div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <label id="lbl-history" style="margin:0">History</label>
+      <button class="btn sec" id="refreshBtn" style="padding:2px 8px;font-size:11px" onclick="send({action:'list_sessions'})"></button>
+    </div>
+    <div id="history" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto"></div>
+  </div>
+  <div>
+    <label id="lbl-topic">Topic</label>
+    <textarea id="topic" rows="3"></textarea>
+  </div>
+  <div>
+    <label id="lbl-exchanges"></label>
+    <input id="exchanges" type="number" min="1" max="6" value="2">
+  </div>
+  <div>
+    <label id="lbl-reference"></label>
+    <input type="file" id="refFiles" accept="application/pdf" multiple>
+    <div id="refStatus"></div>
+  </div>
+  <div>
+    <label id="lbl-participants">Participants</label>
+    <div id="plist" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div class="rowbtns" style="margin-top:8px">
+      <button class="btn sec" id="addParticipantBtn" onclick="addParticipant()"></button>
+    </div>
+  </div>
+  <button class="btn" id="startBtn" onclick="startDebate()"></button>
+  <div class="rowbtns">
+    <button class="btn sec" id="exportObsidianBtn" onclick="exportObsidian()"></button>
+    <button class="btn sec" id="exportPdfBtn" onclick="exportPdf()"></button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="status"><div id="statedot"></div><span id="statetext"></span></div>
+  <div id="chat"></div>
+  <div id="thinking"></div>
+  <div id="composer">
+    <textarea id="inp"></textarea>
+    <button class="btn sec" id="sendBtn" onclick="interject()"></button>
+    <button class="btn" id="contBtn" onclick="send({action:'continue'})" disabled></button>
+    <button class="btn sec" id="wrapBtn" onclick="send({action:'wrap_up'})" disabled></button>
+  </div>
+</div>
+
+<div id="modalWrap">
+  <div id="loginModal">
+    <h2 id="loginTitle">Connect</h2>
+    <div class="sub" id="loginSub"></div>
+    <div class="sub" id="loginInstructions"></div>
+    <div id="loginCmdRow">
+      <code id="loginCmd"></code>
+      <button class="btn sec" id="copyCmdBtn" onclick="copyLoginCmd()"></button>
+    </div>
+    <div id="loginStatus"></div>
+    <div class="rowbtns">
+      <button class="btn sec" id="recheckBtn" onclick="recheckStatus()"></button>
+      <button class="btn sec" id="modalClose" onclick="closeLoginModal()"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let ws, models={claude:["sonnet","opus"],gemini:["gemini-3.6-flash-high","gemini-3.1-pro-high"],openai:["gpt-5.4"],deepseek:["deepseek-v4-flash","deepseek-v4-pro"]};
+let providerOf={};  // participant name -> provider, for bubble coloring
+
+/* ---------- theme ---------- */
+let theme=localStorage.getItem('theme')||'dark';
+function applyTheme(){
+  document.documentElement.setAttribute('data-theme',theme);
+  // Shows the mode you'd switch *to*, so the button reads as an action.
+  $("themeToggle").textContent=theme==='dark'?t('themeLight'):t('themeDark');
+}
+function toggleTheme(){theme=theme==='dark'?'light':'dark';localStorage.setItem('theme',theme);applyTheme();}
+// Paint the right palette immediately; the button's word label needs LABELS
+// (defined below), so applyTheme() itself runs from applyLabels().
+document.documentElement.setAttribute('data-theme',theme);
+
+/* ---------- i18n ---------- */
+const LABELS={
+  en:{
+    appTitle:"AI Roundtable",
+    appSubtitle:"Claude × Gemini × OpenAI × DeepSeek debate — every round ends in a verdict",
+    srcLink:"Source code (AGPL-3.0) ↗",
+    accounts:"Accounts", presets:"Presets", savePreset:"+ Save current as preset",
+    history:"History", refresh:"refresh",
+    topic:"Topic", topicPlaceholder:"What should they debate?",
+    exchanges:"Exchanges per round (each participant speaks this many times, then a summary + your checkpoint)",
+    reference:"Reference material (PDF, optional)",
+    participants:"Participants", addParticipant:"+ Add participant",
+    startDebate:"Start debate", exportObsidian:"Export to Obsidian", exportPdf:"Export as PDF",
+    composerPlaceholder:"Interject as Moderator… (Enter to send, Shift+Enter for newline)",
+    send:"Send", continueRound:"Continue round", wrapUp:"Wrap up",
+    noPresets:"No presets saved yet.", noSessions:"No past sessions yet.",
+    confirmNewSession:"A debate is in progress — starting a new one will end it. Continue?",
+    alertSetTopic:"Set a topic first.", alertNeedTwo:"Need at least 2 participants.",
+    viewingPast:t=>`Viewing past conversation: "${t}" — `, backToLive:"back to live",
+    connect:"Connect", reconnect:"Reconnect", ctaNotInstalled:"CLI not found on PATH",
+    notConnected:"not connected", close:"Close",
+    themeLight:"Light", themeDark:"Dark",
+    loginInstructions:"Run this in your terminal and follow its prompts, then come back and re-check:",
+    copy:"Copy", copied:"Copied", recheck:"Re-check status",
+    checking:"Checking…", statusConnected:"Connected.", statusNotConnected:"Still not connected.",
+    statusNotInstalled:"CLI not found on PATH.",
+    stateConfiguring:"ready — set a topic and start",
+    stateInRound:r=>`round ${r||""} in progress`,
+    stateRoundSummary:"summarizing round…",
+    stateModCheckpoint:r=>`round ${r||""} done — your input, then Continue or Wrap up`,
+    stateWrappingUp:"synthesizing final verdict…",
+    stateDone:"debate finished — export or start a new one",
+    histDone:"done", histAbandoned:"abandoned", histIncomplete:"incomplete",
+    presetNamePrompt:"Preset name:", namePlaceholder:"Name", personaPlaceholder:"Persona / perspective",
+    refExtracting:"Extracting…",
+    refResult:(n,c)=>`${n} file(s), ${c.toLocaleString()} chars extracted`,
+    providerDesc:{claude:"Claude Pro/Max subscription (Claude Code CLI)",gemini:"Google account w/ Gemini subscription (Antigravity CLI)",openai:"ChatGPT Plus/Pro/Team subscription (Codex CLI)",deepseek:"DeepSeek API key — pay per token, but ~1% the price of the others"},
+    providerLabel:{claude:"Claude",gemini:"Gemini",openai:"OpenAI",deepseek:"DeepSeek"},
+  },
+  zh:{
+    appTitle:"AI Roundtable",
+    appSubtitle:"Claude × Gemini × OpenAI × DeepSeek 辩论 — 每轮都给出结论",
+    srcLink:"源码 (AGPL-3.0) ↗",
+    accounts:"账号", presets:"预设", savePreset:"+ 保存当前为预设",
+    history:"历史记录", refresh:"刷新",
+    topic:"话题", topicPlaceholder:"他们应该辩论什么？",
+    exchanges:"每轮发言次数（每位参与者发言这么多次后进行总结，并等待你的确认）",
+    reference:"参考资料（PDF，可选）",
+    participants:"参与者", addParticipant:"+ 添加参与者",
+    startDebate:"开始辩论", exportObsidian:"导出到 Obsidian", exportPdf:"导出为 PDF",
+    composerPlaceholder:"以主持人身份发言…（Enter 发送，Shift+Enter 换行）",
+    send:"发送", continueRound:"继续下一轮", wrapUp:"结束辩论",
+    noPresets:"暂无已保存的预设。", noSessions:"暂无历史记录。",
+    confirmNewSession:"有一场辩论正在进行 — 开始新的辩论将结束它。是否继续？",
+    alertSetTopic:"请先设置话题。", alertNeedTwo:"至少需要 2 位参与者。",
+    viewingPast:t=>`正在查看历史对话："${t}" — `, backToLive:"返回直播",
+    connect:"连接", reconnect:"重新连接", ctaNotInstalled:"未在 PATH 中找到该 CLI",
+    notConnected:"未连接", close:"关闭",
+    themeLight:"浅色", themeDark:"深色",
+    loginInstructions:"请在终端中运行以下命令并按提示完成登录，然后返回此处重新检查：",
+    copy:"复制", copied:"已复制", recheck:"重新检查状态",
+    checking:"检查中…", statusConnected:"已连接。", statusNotConnected:"仍未连接。",
+    statusNotInstalled:"未在 PATH 中找到该 CLI。",
+    stateConfiguring:"就绪 — 设置话题并开始",
+    stateInRound:r=>`第 ${r||""} 轮进行中`,
+    stateRoundSummary:"正在总结本轮…",
+    stateModCheckpoint:r=>`第 ${r||""} 轮已完成 — 请输入后点击继续或结束`,
+    stateWrappingUp:"正在生成最终结论…",
+    stateDone:"辩论已结束 — 导出或开始新的辩论",
+    histDone:"已完成", histAbandoned:"已放弃", histIncomplete:"未完成",
+    presetNamePrompt:"预设名称：", namePlaceholder:"名称", personaPlaceholder:"人设 / 立场",
+    refExtracting:"正在提取…",
+    refResult:(n,c)=>`已提取 ${n} 个文件，共 ${c.toLocaleString()} 字符`,
+    providerDesc:{claude:"Claude Pro/Max 订阅（Claude Code CLI）",gemini:"Google 账号 Gemini 订阅（Antigravity CLI）",openai:"ChatGPT Plus/Pro/Team 订阅（Codex CLI）",deepseek:"DeepSeek API 密钥 — 按量计费，但价格约为其他模型的 1%"},
+    providerLabel:{claude:"Claude",gemini:"Gemini",openai:"OpenAI",deepseek:"DeepSeek"},
+  },
+};
+let lang=localStorage.getItem('lang')||'en';
+function t(key){return LABELS[lang][key];}
+function toggleLang(){lang=lang==='en'?'zh':'en';localStorage.setItem('lang',lang);applyLabels();}
+
+const STATE_KEY={configuring:"stateConfiguring",round_summary:"stateRoundSummary",wrapping_up:"stateWrappingUp",done:"stateDone"};
+let connectedOnce=false, lastPresets=[], lastSessions=[];
+
+function applyLabels(){
+  $("langToggle").textContent=lang==='en'?'中文':'EN';
+  applyTheme();
+  $("appTitleText").textContent=t('appTitle');
+  $("appSubtitle").textContent=t('appSubtitle');
+  $("srcLink").firstElementChild.textContent=t('srcLink');
+  $("lbl-accounts").textContent=t('accounts');
+  $("lbl-presets").textContent=t('presets');
+  $("savePresetBtn").textContent=t('savePreset');
+  $("lbl-history").textContent=t('history');
+  $("refreshBtn").textContent=t('refresh');
+  $("lbl-topic").textContent=t('topic');
+  $("topic").placeholder=t('topicPlaceholder');
+  $("lbl-exchanges").textContent=t('exchanges');
+  $("lbl-reference").textContent=t('reference');
+  $("lbl-participants").textContent=t('participants');
+  $("addParticipantBtn").textContent=t('addParticipant');
+  $("startBtn").textContent=t('startDebate');
+  $("exportObsidianBtn").textContent=t('exportObsidian');
+  $("exportPdfBtn").textContent=t('exportPdf');
+  $("inp").placeholder=t('composerPlaceholder');
+  $("sendBtn").textContent=t('send');
+  $("contBtn").textContent=t('continueRound');
+  $("wrapBtn").textContent=t('wrapUp');
+  $("loginInstructions").textContent=t('loginInstructions');
+  $("copyCmdBtn").textContent=t('copy');
+  $("recheckBtn").textContent=t('recheck');
+  $("modalClose").textContent=t('close');
+  [...$("plist").children].forEach(row=>{
+    row.querySelector("[name=pname]").placeholder=t('namePlaceholder');
+    row.querySelector("[name=ppersona]").placeholder=t('personaPlaceholder');
+  });
+  renderAccounts();
+  renderPresets(lastPresets);
+  renderHistory(lastSessions);
+  applyState(liveState, lastRound);
+  if(!connectedOnce) setState(t('notConnected'));
+}
+
+/* ---------- accounts / connect flow ---------- */
+let providerStatus={claude:"unknown",gemini:"unknown",openai:"unknown",deepseek:"unknown"};
+let modalProvider=null, pendingRecheck=null, loginHints={};
+function renderAccounts(){
+  const box=$("accounts"); box.innerHTML="";
+  Object.keys(t('providerLabel')).forEach(p=>{
+    const st=providerStatus[p]||"unknown";
+    const div=document.createElement("div");div.className="acct";
+    const btnLabel=st==="connected"?t('reconnect'):t('connect');
+    const disabled=st==="not_installed"?"disabled":"";
+    div.innerHTML=`<div class="adot ${st}" title="${st}"></div>
+      <div class="abody"><div class="aname">${esc(t('providerLabel')[p])}</div><div class="adesc">${st==="not_installed"?t('ctaNotInstalled'):esc(t('providerDesc')[p])}</div></div>
+      <button class="btn sec" ${disabled} onclick="openLoginModal('${p}')">${esc(btnLabel)}</button>`;
+    box.appendChild(div);
+  });
+}
+function openLoginModal(provider){
+  modalProvider=provider;
+  $("loginTitle").textContent=`${t('connect')} ${t('providerLabel')[provider]}`;
+  $("loginSub").textContent=t('providerDesc')[provider];
+  $("loginCmd").textContent=loginHints[provider]||"";
+  $("loginStatus").textContent="";$("loginStatus").className="";
+  $("copyCmdBtn").textContent=t('copy');
+  $("modalWrap").classList.add("open");
+}
+function closeLoginModal(){$("modalWrap").classList.remove("open");modalProvider=null;}
+async function copyLoginCmd(){
+  try{
+    await navigator.clipboard.writeText($("loginCmd").textContent);
+    $("copyCmdBtn").textContent=t('copied');
+    setTimeout(()=>{$("copyCmdBtn").textContent=t('copy');},1500);
+  }catch(e){/* clipboard blocked — the <code> block is user-select:all, so select-and-copy still works */}
+}
+function recheckStatus(){
+  $("loginStatus").textContent=t('checking');$("loginStatus").className="";
+  pendingRecheck=modalProvider;
+  send({action:"get_provider_status"});
+}
+
+const DEFAULTS=[
+ {name:"Advocate", provider:"claude", model:"sonnet", persona:"Argue the strongest good-faith case FOR the proposition. Steelman it with evidence."},
+ {name:"Skeptic", provider:"gemini", model:"gemini-3.6-flash-high", persona:"Challenge every claim. Hunt for weak assumptions, missing evidence, and tail risks."},
+ {name:"Outsider", provider:"deepseek", model:"deepseek-v4-flash", persona:"Break the frame. Question what both sides are taking for granted, and raise considerations neither has thought to mention."}
+];
+
+function connect(){
+  ws=new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen=()=>{connectedOnce=true;};
+  ws.onclose=()=>{connectedOnce=false;setState("disconnected — retrying…");setTimeout(connect,1500)};
+  ws.onmessage=e=>{
+    const d=JSON.parse(e.data);
+    if(d.type==="init"){
+      models=d.models;
+      loginHints=d.login_hints||{};
+      $("chat").innerHTML="";
+      (d.participants||[]).forEach(p=>providerOf[p.name]=p.provider);
+      d.messages.forEach(addMsg);
+      if($("plist").children.length===0){
+        const first=(d.presets&&d.presets[0])?d.presets[0].participants:DEFAULTS;
+        first.forEach(addParticipant);
+      }
+      if(d.topic)$("topic").value=d.topic;
+      lastPresets=d.presets||[];
+      lastSessions=d.sessions||[];
+      applyState(d.state);
+      lastLive={messages:d.messages||[],participants:d.participants||[]};
+      applyLabels();
+    }
+    else if(d.type==="message"){$("thinking").innerHTML="";addMsg(d);lastLive.messages.push(d);}
+    else if(d.type==="state")applyState(d.state,d.round);
+    else if(d.type==="thinking")$("thinking").innerHTML=`<b>${esc(d.speaker)}</b> is thinking<span class="dots"></span>`;
+    else if(d.type==="system")addMsg({speaker:"System",content:d.text,kind:"system"});
+    else if(d.type==="presets"){lastPresets=d.presets;renderPresets(d.presets);}
+    else if(d.type==="sessions"){lastSessions=d.sessions;renderHistory(d.sessions);}
+    else if(d.type==="session")viewSession(d.session,d.id);
+    else if(d.type==="provider_status"){
+      providerStatus=d.status;renderAccounts();
+      if(pendingRecheck){
+        const st=providerStatus[pendingRecheck];
+        $("loginStatus").textContent=st==="connected"?t('statusConnected'):st==="not_installed"?t('statusNotInstalled'):t('statusNotConnected');
+        $("loginStatus").className=st==="connected"?"ok":"fail";
+        if(st==="connected")setTimeout(()=>{if(modalProvider===pendingRecheck)closeLoginModal();pendingRecheck=null;},1200);
+        else pendingRecheck=null;
+      }
+    }
+  };
+}
+function send(o){ws&&ws.readyState===1&&ws.send(JSON.stringify(o))}
+function setState(txt){$("statetext").textContent=txt}
+let liveState="configuring", lastRound=0;
+function applyState(s,round){
+  liveState=s; if(round!==undefined)lastRound=round;
+  let label;
+  if(s==="in_round")label=t('stateInRound')(lastRound);
+  else if(s==="moderator_checkpoint")label=t('stateModCheckpoint')(lastRound);
+  else label=t(STATE_KEY[s])||s;
+  setState(label);
+  $("statedot").className=(s==="in_round"||s==="round_summary"||s==="wrapping_up")?"live":"";
+  $("contBtn").disabled=s!=="moderator_checkpoint";
+  $("wrapBtn").disabled=!(s==="moderator_checkpoint"||s==="in_round");
+}
+function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}
+function mini(md){ // tiny markdown: bold + paragraphs
+  return esc(md).replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br>");
+}
+function addMsg(m){
+  const div=document.createElement("div");
+  let cls=m.kind;
+  if(m.kind==="turn")cls=providerOf[m.speaker]||"turn";
+  div.className="msg "+cls;
+  let badge=m.kind==="turn"&&providerOf[m.speaker]?`<span class="badge">${providerOf[m.speaker]}</span>`:"";
+  // Summaries carry how settled the round was, when the summariser reported it.
+  const conv=m.meta&&m.meta.convergence;
+  if(conv)badge+=`<span class="conv ${esc(conv)}">${esc(conv)}</span>`;
+  const who=m.kind==="system"?"":`<div class="who">${esc(m.speaker)} ${badge}</div>`;
+  div.innerHTML=who+`<div class="md">${mini(m.content)}</div>`;
+  $("chat").appendChild(div);
+  $("chat").scrollTop=$("chat").scrollHeight;
+}
+
+/* ---------- participants editor ---------- */
+function addParticipant(p){
+  p=p&&p.name!==undefined?p:{name:"",provider:"claude",model:"sonnet",persona:""};
+  const row=document.createElement("div");row.className="prow";
+  row.innerHTML=`
+    <div class="top">
+      <input name="pname" placeholder="${esc(t('namePlaceholder'))}" value="${esc(p.name)}">
+      <button class="del" title="remove" onclick="this.closest('.prow').remove()">✕</button>
+    </div>
+    <div class="top">
+      <select name="pprov"></select><select name="pmodel"></select>
+    </div>
+    <textarea name="ppersona" rows="2" placeholder="${esc(t('personaPlaceholder'))}">${esc(p.persona)}</textarea>`;
+  const prov=row.querySelector("[name=pprov]"), mod=row.querySelector("[name=pmodel]");
+  Object.keys(models).forEach(x=>prov.add(new Option(x,x)));
+  prov.value=p.provider;
+  const fill=()=>{mod.innerHTML="";(models[prov.value]||[]).forEach(x=>mod.add(new Option(x,x)));};
+  fill(); if(p.model)mod.value=p.model;
+  prov.onchange=fill;
+  $("plist").appendChild(row);
+}
+function readParticipants(){
+  return [...$("plist").children].map(r=>({
+    name:r.querySelector("[name=pname]").value.trim(),
+    provider:r.querySelector("[name=pprov]").value,
+    model:r.querySelector("[name=pmodel]").value,
+    persona:r.querySelector("[name=ppersona]").value.trim(),
+  })).filter(p=>p.name);
+}
+/* ---------- presets ---------- */
+function renderPresets(presets){
+  const box=$("presetList"); box.innerHTML="";
+  if(!presets||!presets.length){box.innerHTML=`<div style="color:var(--muted);font-size:12px">${esc(t('noPresets'))}</div>`;return;}
+  presets.forEach(p=>{
+    const div=document.createElement("div");div.className="hitem";
+    div.innerHTML=`<div class="hbody"><div class="htopic">${esc(p.name)}</div>
+      <div class="hmeta">${(p.participants||[]).map(x=>esc(x.name)).join(", ")}</div></div>
+      <button class="del" title="delete preset">✕</button>`;
+    div.onclick=()=>applyPreset(p);
+    div.querySelector(".del").onclick=e=>{e.stopPropagation();send({action:"delete_preset",name:p.name});};
+    box.appendChild(div);
+  });
+}
+function applyPreset(p){
+  $("plist").innerHTML="";
+  (p.participants||[]).forEach(addParticipant);
+}
+function savePreset(){
+  const name=(prompt(t('presetNamePrompt'))||"").trim();
+  if(!name)return;
+  send({action:"save_preset",name,participants:readParticipants()});
+}
+
+/* ---------- reference material (PDF upload) ---------- */
+let referenceText="";
+$("refFiles").addEventListener("change",async()=>{
+  const files=[...$("refFiles").files];
+  if(!files.length){referenceText="";$("refStatus").textContent="";return;}
+  $("refStatus").textContent=t('refExtracting');
+  const parts=[];
+  for(const f of files){
+    const fd=new FormData();fd.append("file",f);
+    try{
+      const res=await fetch("/upload_reference",{method:"POST",body:fd});
+      const data=await res.json();
+      parts.push(data.error?`--- ${f.name} (${data.error}) ---`:`--- ${f.name} ---\n${data.text}`);
+    }catch(e){parts.push(`--- ${f.name} (upload failed) ---`);}
+  }
+  referenceText=parts.join("\n\n");
+  $("refStatus").textContent=t('refResult')(files.length, referenceText.length);
+});
+
+/* ---------- history ---------- */
+let lastLive={messages:[],participants:[]}, viewingPast=false, viewingSessionId=null;
+/* Exports follow whatever is on screen: the live debate, or the history
+   session currently being viewed. */
+function exportPdf(){
+  window.open(viewingSessionId?`/export.pdf?session=${encodeURIComponent(viewingSessionId)}`:"/export.pdf");
+}
+function exportObsidian(){
+  send(viewingSessionId?{action:"export",session:viewingSessionId}:{action:"export"});
+}
+function renderHistory(sessions){
+  const box=$("history"); box.innerHTML="";
+  if(!sessions||!sessions.length){box.innerHTML=`<div style="color:var(--muted);font-size:12px">${esc(t('noSessions'))}</div>`;return;}
+  sessions.forEach(s=>{
+    const div=document.createElement("div");div.className="hitem";
+    const date=new Date(s.mtime*1000).toLocaleString();
+    const stateWord=s.state==="done"?t('histDone'):s.state==="abandoned"?t('histAbandoned'):t('histIncomplete');
+    div.innerHTML=`<div class="hbody"><div class="htopic">${esc(s.topic)}</div>
+      <div class="hmeta">${esc(date)} · ${esc(stateWord)} · ${(s.participants||[]).map(esc).join(", ")}</div></div>`;
+    div.onclick=()=>send({action:"get_session",id:s.id});
+    box.appendChild(div);
+  });
+}
+function viewSession(sess,id){
+  viewingPast=true; viewingSessionId=id||null;
+  $("chat").innerHTML=`<div class="msg system">${esc(t('viewingPast')(sess.topic))}<a href="#" onclick="exitHistoryView();return false" style="color:var(--accent)">${esc(t('backToLive'))}</a></div>`;
+  const savedProviderOf=providerOf; providerOf={};
+  (sess.participants||[]).forEach(p=>providerOf[p.name]=p.provider);
+  (sess.messages||[]).forEach(addMsg);
+  providerOf=savedProviderOf;
+  $("composer").style.opacity=.4; $("composer").style.pointerEvents="none";
+}
+function exitHistoryView(){
+  viewingPast=false; viewingSessionId=null;
+  $("composer").style.opacity=1; $("composer").style.pointerEvents="auto";
+  $("chat").innerHTML="";
+  (lastLive.participants||[]).forEach(p=>providerOf[p.name]=p.provider);
+  (lastLive.messages||[]).forEach(addMsg);
+}
+
+function startDebate(){
+  const topic=$("topic").value.trim(), parts=readParticipants();
+  if(!topic)return alert(t('alertSetTopic'));
+  if(parts.length<2)return alert(t('alertNeedTwo'));
+  const busy=!(liveState==="configuring"||liveState==="done");
+  if(busy&&!confirm(t('confirmNewSession')))return;
+  if(viewingPast){exitHistoryView();}
+  lastLive={messages:[],participants:[]};
+  providerOf={};parts.forEach(p=>providerOf[p.name]=p.provider);
+  $("chat").innerHTML="";
+  send({action:"start",topic,participants:parts,exchanges_per_round:+$("exchanges").value||2,force:busy,reference_material:referenceText});
+}
+function interject(){
+  const t=$("inp").value.trim();if(!t)return;
+  send({action:"interject",text:t});$("inp").value="";
+}
+$("inp").addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();interject();}
+});
+applyLabels();
+connect();
+</script>
+</body>
+</html>
