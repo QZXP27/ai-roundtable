@@ -113,6 +113,10 @@
   #composer textarea{flex:1;height:44px;max-height:140px}
   .md{font-size:inherit}
   .md p{margin:.4em 0} .md strong{color:var(--text)}
+  .mrow{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+  .mrow .mtag{font-size:11px;color:var(--muted);flex:none;width:56px}
+  .mrow select{flex:1;min-width:0}
+  .hint{font-size:11px;color:var(--muted);margin-top:2px}
   #srcLink{margin:2px 0 10px;font-size:11px}
   #srcLink a{color:var(--muted);text-decoration:none} #srcLink a:hover{color:var(--accent)}
 </style>
@@ -153,6 +157,18 @@
   <div>
     <label id="lbl-exchanges"></label>
     <input id="exchanges" type="number" min="1" max="6" value="2">
+  </div>
+  <div>
+    <label id="lbl-metaModels"></label>
+    <div class="mrow">
+      <span class="mtag" id="lbl-summaryModel"></span>
+      <select id="sumProv"></select><select id="sumModel"></select>
+    </div>
+    <div class="mrow">
+      <span class="mtag" id="lbl-verdictModel"></span>
+      <select id="verProv"></select><select id="verModel"></select>
+    </div>
+    <div class="hint" id="metaHint"></div>
   </div>
   <div>
     <label id="lbl-reference"></label>
@@ -229,6 +245,11 @@ const LABELS={
     history:"History", refresh:"refresh",
     topic:"Topic", topicPlaceholder:"What should they debate?",
     exchanges:"Exchanges per round (each participant speaks this many times, then a summary + your checkpoint)",
+    metaModels:"Who writes the summary and verdict",
+    summaryModel:"Summary", verdictModel:"Verdict", autoModel:"Auto",
+    metaHint:"Auto picks a connected provider. Changes apply from the next round.",
+    metaChanged:"Summary/verdict model updated.",
+    byModel:m=>`by ${m}`,
     reference:"Reference material (PDF, optional)",
     participants:"Participants", addParticipant:"+ Add participant",
     startDebate:"Start debate", exportObsidian:"Export to Obsidian", exportPdf:"Export as PDF",
@@ -267,6 +288,11 @@ const LABELS={
     topic:"话题", topicPlaceholder:"他们应该辩论什么？",
     exchanges:"每轮发言次数（每位参与者发言这么多次后进行总结，并等待你的确认）",
     reference:"参考资料（PDF，可选）",
+    metaModels:"由谁撰写总结与结论",
+    summaryModel:"总结", verdictModel:"结论", autoModel:"自动",
+    metaHint:"「自动」会挑选一个已连接的供应商。修改从下一轮开始生效。",
+    metaChanged:"已更新总结/结论所用模型。",
+    byModel:m=>`由 ${m} 生成`,
     participants:"参与者", addParticipant:"+ 添加参与者",
     startDebate:"开始辩论", exportObsidian:"导出到 Obsidian", exportPdf:"导出为 PDF",
     composerPlaceholder:"以主持人身份发言…（Enter 发送，Shift+Enter 换行）",
@@ -317,6 +343,11 @@ function applyLabels(){
   $("lbl-topic").textContent=t('topic');
   $("topic").placeholder=t('topicPlaceholder');
   $("lbl-exchanges").textContent=t('exchanges');
+  $("lbl-metaModels").textContent=t('metaModels');
+  $("lbl-summaryModel").textContent=t('summaryModel');
+  $("lbl-verdictModel").textContent=t('verdictModel');
+  $("metaHint").textContent=t('metaHint');
+  renderMetaModels(readMetaModels());
   $("lbl-reference").textContent=t('reference');
   $("lbl-participants").textContent=t('participants');
   $("addParticipantBtn").textContent=t('addParticipant');
@@ -395,6 +426,7 @@ function connect(){
     const d=JSON.parse(e.data);
     if(d.type==="init"){
       models=d.models;
+      renderMetaModels({summary_model:d.summary_model,verdict_model:d.verdict_model});
       loginHints=d.login_hints||{};
       $("chat").innerHTML="";
       (d.participants||[]).forEach(p=>providerOf[p.name]=p.provider);
@@ -419,6 +451,7 @@ function connect(){
     else if(d.type==="session")viewSession(d.session,d.id);
     else if(d.type==="provider_status"){
       providerStatus=d.status;renderAccounts();
+      renderMetaModels(readMetaModels());   // refresh ✓/✗ without losing the pick
       if(pendingRecheck){
         const st=providerStatus[pendingRecheck];
         $("loginStatus").textContent=st==="connected"?t('statusConnected'):st==="not_installed"?t('statusNotInstalled'):t('statusNotConnected');
@@ -456,6 +489,9 @@ function addMsg(m){
   // Summaries carry how settled the round was, when the summariser reported it.
   const conv=m.meta&&m.meta.convergence;
   if(conv)badge+=`<span class="conv ${esc(conv)}">${esc(conv)}</span>`;
+  // Which model produced this summary/verdict — matters now that it's chosen.
+  const by=m.meta&&m.meta.model;
+  if(by&&(m.kind==="summary"||m.kind==="verdict"))badge+=`<span class="badge" style="background:var(--${esc(by.split('/')[0])},var(--muted))">${esc(t('byModel')(by))}</span>`;
   const who=m.kind==="system"?"":`<div class="who">${esc(m.speaker)} ${badge}</div>`;
   div.innerHTML=who+`<div class="md">${mini(m.content)}</div>`;
   $("chat").appendChild(div);
@@ -464,7 +500,7 @@ function addMsg(m){
 
 /* ---------- participants editor ---------- */
 function addParticipant(p){
-  p=p&&p.name!==undefined?p:{name:"",provider:"claude",model:"sonnet",persona:""};
+  p=p&&p.name!==undefined?p:{name:"",provider:defaultProvider(),model:"",persona:""};
   const row=document.createElement("div");row.className="prow";
   row.innerHTML=`
     <div class="top">
@@ -482,6 +518,57 @@ function addParticipant(p){
   fill(); if(p.model)mod.value=p.model;
   prov.onchange=fill;
   $("plist").appendChild(row);
+}
+// First provider that's actually reachable, so a new participant row starts
+// usable rather than defaulting to Claude on a machine that has no Claude.
+function defaultProvider(){
+  const keys=Object.keys(models);
+  return keys.find(p=>providerStatus[p]==="connected")||keys[0]||"claude";
+}
+
+/* ---------- summary / verdict model pickers ---------- */
+const AUTO="__auto__";
+// Marks providers you can't currently reach, so nobody picks Claude, waits a
+// round, and gets "summary failed" instead of a summary.
+function provOptionLabel(p){
+  const st=providerStatus[p];
+  return p+(st==="connected"?" ✓":st&&st!=="unknown"?" ✗":"");
+}
+function fillMetaSelect(provSel,modSel,spec){
+  const keep=spec&&spec.provider?spec.provider:AUTO;
+  provSel.innerHTML="";
+  provSel.add(new Option(t('autoModel'),AUTO));
+  Object.keys(models).forEach(p=>provSel.add(new Option(provOptionLabel(p),p)));
+  provSel.value=keep;
+  const fill=()=>{
+    modSel.innerHTML="";
+    if(provSel.value===AUTO){modSel.add(new Option("—","")); modSel.disabled=true; return;}
+    modSel.disabled=false;
+    (models[provSel.value]||[]).forEach(m=>modSel.add(new Option(m,m)));
+  };
+  fill();
+  // .value must be set after the options exist, or it silently no-ops.
+  if(spec&&spec.model)modSel.value=spec.model;
+  provSel.onchange=()=>{fill();pushMetaModels();};
+  modSel.onchange=pushMetaModels;
+}
+function readMetaSpec(provSel,modSel){
+  if(provSel.value===AUTO)return null;
+  return {provider:provSel.value,model:modSel.value};
+}
+function readMetaModels(){
+  return {summary_model:readMetaSpec($("sumProv"),$("sumModel")),
+          verdict_model:readMetaSpec($("verProv"),$("verModel"))};
+}
+// The participants editor is only read at start, but these apply live — a
+// change at a checkpoint takes effect from the next round's summary onward.
+function pushMetaModels(){
+  if(liveState==="configuring"||liveState==="done"||!liveState)return;
+  send(Object.assign({action:"set_meta_models"},readMetaModels()));
+}
+function renderMetaModels(spec){
+  fillMetaSelect($("sumProv"),$("sumModel"),spec&&spec.summary_model);
+  fillMetaSelect($("verProv"),$("verModel"),spec&&spec.verdict_model);
 }
 function readParticipants(){
   return [...$("plist").children].map(r=>({
@@ -508,11 +595,12 @@ function renderPresets(presets){
 function applyPreset(p){
   $("plist").innerHTML="";
   (p.participants||[]).forEach(addParticipant);
+  renderMetaModels({summary_model:p.summary_model,verdict_model:p.verdict_model});
 }
 function savePreset(){
   const name=(prompt(t('presetNamePrompt'))||"").trim();
   if(!name)return;
-  send({action:"save_preset",name,participants:readParticipants()});
+  send(Object.assign({action:"save_preset",name,participants:readParticipants()},readMetaModels()));
 }
 
 /* ---------- reference material (PDF upload) ---------- */
@@ -584,7 +672,7 @@ function startDebate(){
   lastLive={messages:[],participants:[]};
   providerOf={};parts.forEach(p=>providerOf[p.name]=p.provider);
   $("chat").innerHTML="";
-  send({action:"start",topic,participants:parts,exchanges_per_round:+$("exchanges").value||2,force:busy,reference_material:referenceText});
+  send(Object.assign({action:"start",topic,participants:parts,exchanges_per_round:+$("exchanges").value||2,force:busy,reference_material:referenceText},readMetaModels()));
 }
 function interject(){
   const t=$("inp").value.trim();if(!t)return;

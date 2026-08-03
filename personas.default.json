@@ -38,5 +38,30 @@
     "persona": "Break the frame. Question what both sides are taking for granted, and raise considerations neither has thought to mention."
    }
   ]
+ },
+ {
+  "name": "DeepSeek only / 纯 DeepSeek",
+  "summary_model": {
+   "provider": "deepseek",
+   "model": "deepseek-v4-pro"
+  },
+  "verdict_model": {
+   "provider": "deepseek",
+   "model": "deepseek-v4-pro"
+  },
+  "participants": [
+   {
+    "name": "Advocate",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "persona": "Argue the strongest good-faith case FOR the proposition. Steelman it with evidence."
+   },
+   {
+    "name": "Skeptic",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "persona": "Challenge every claim. Hunt for weak assumptions, missing evidence, and tail risks."
+   }
+  ]
  }
 ]

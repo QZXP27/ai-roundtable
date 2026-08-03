@@ -158,7 +158,7 @@ async def call_gemini(prompt: str, model: str = "gemini-3.6-flash-high") -> str:
     return text
 
 
-async def call_openai(prompt: str, model: str = "gpt-5.4") -> str:
+async def call_openai(prompt: str, model: str = "gpt-5.6-terra") -> str:
     """Headless Codex CLI call on the ChatGPT subscription (OAuth login, not
     an API key). Sandbox is read-only so it behaves as a pure chat
     participant with no shell/filesystem access. Prompt is passed as a
@@ -257,8 +257,15 @@ STATUS_CHECK_PROMPT = "Reply with exactly the word OK and nothing else."
 
 
 async def check_status(provider: str) -> str:
-    """Cheap connectivity check for the Accounts panel. Returns "connected",
-    "not_connected", or "not_installed". DeepSeek has a free models endpoint
+    """Connectivity check for the Accounts panel, caching into LAST_STATUS so
+    auto-resolution can read availability without probing again."""
+    status = await _probe_status(provider)
+    LAST_STATUS[provider] = status
+    return status
+
+
+async def _probe_status(provider: str) -> str:
+    """Returns "connected", "not_connected", or "not_installed". DeepSeek has a free models endpoint
     and Codex a dedicated `login status` subcommand; Claude and Gemini have
     neither, so those fall back to a tiny live call."""
     if provider == "deepseek":
@@ -295,3 +302,69 @@ async def check_status(provider: str) -> str:
     except ModelCallError as e:
         return "not_installed" if "not found" in str(e) else "not_connected"
     return "connected"
+
+
+# ---------------------------------------------------------------- auto-select
+
+# Last known per-provider status, populated by check_status. Auto-resolution
+# reads this instead of probing: the claude and gemini checks each cost a real
+# inference call, so resolving a model must never trigger one.
+LAST_STATUS: dict[str, str] = {}
+
+# Preference order for meta-turns (round summaries and the final verdict),
+# best synthesis first. Only consulted when the user picked "auto".
+AUTO_PREFERENCE = [
+    ("claude", "opus"),
+    ("openai", "gpt-5.6-terra"),
+    ("gemini", "gemini-3.1-pro-high"),
+    ("deepseek", "deepseek-v4-pro"),
+]
+
+
+def auto_candidates(prefer_providers=()) -> list[tuple[str, str]]:
+    """Ordered (provider, model) candidates for an 'auto' choice.
+
+    Prefers providers known to be connected. When nothing has been probed yet
+    — a fresh server that hasn't run a status check — falls back to providers
+    the user put in the debate, since those are demonstrably configured. The
+    full list is always appended so a caller can keep trying rather than fail.
+    """
+    connected = [c for c in AUTO_PREFERENCE if LAST_STATUS.get(c[0]) == "connected"]
+    if connected:
+        ordered = connected
+    elif not LAST_STATUS:
+        ordered = [c for c in AUTO_PREFERENCE if c[0] in prefer_providers]
+    else:
+        ordered = []
+    # Dedupe while preserving order; the tail is the last-resort fallback.
+    seen, out = set(), []
+    for c in ordered + AUTO_PREFERENCE:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+def resolve_model(spec, prefer_providers=()) -> list[tuple[str, str]]:
+    """Turns a model spec into the candidates to try, in order.
+
+    `spec` is either None/falsy ("auto") or {"provider": ..., "model": ...}.
+    An explicit choice yields exactly one candidate — if the user asked for
+    DeepSeek, quietly answering with Claude would be worse than an error.
+    """
+    if spec and spec.get("provider") and spec.get("model"):
+        return [(spec["provider"], spec["model"])]
+    return auto_candidates(prefer_providers)
+
+
+async def call_with_fallback(candidates: list[tuple[str, str]], prompt: str):
+    """Tries each candidate in turn, returning (text, provider, model).
+    Raises the last ModelCallError if they all fail. A single-candidate list
+    (an explicit user choice) therefore behaves exactly like a direct call."""
+    last = None
+    for provider, model in candidates:
+        try:
+            return await call_model(provider, prompt, model), provider, model
+        except ModelCallError as e:
+            last = e
+    raise last or ModelCallError("no model available")

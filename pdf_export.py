@@ -306,7 +306,8 @@ def to_pdf_bytes(session) -> bytes:
         elif m.kind == "summary":
             _keep_together(pdf, 34)
             _rule(pdf, strong=True, gap_before=5, gap_after=3)
-            _cell(pdf, f"Round {m.round} — Summary", h=6.4, style="B", size=12.5,
+            _by = f"  —  {m.meta['model']}" if getattr(m, "meta", None) and m.meta.get("model") else ""
+            _cell(pdf, f"Round {m.round} — Summary{_by}", h=6.4, style="B", size=12.5,
                   color=ACCENT, markdown=False)
             _gap(pdf, 2)
             _render_body(pdf, m.content)
@@ -315,7 +316,8 @@ def to_pdf_bytes(session) -> bytes:
 
         elif m.kind == "verdict":
             pdf.add_page()
-            _cell(pdf, "Final Verdict", h=8, style="B", size=16, markdown=False)
+            _by = f"  —  {m.meta['model']}" if getattr(m, "meta", None) and m.meta.get("model") else ""
+            _cell(pdf, f"Final Verdict{_by}", h=8, style="B", size=16, markdown=False)
             _rule(pdf, strong=True, gap_before=2, gap_after=4)
             _render_body(pdf, m.content)
 

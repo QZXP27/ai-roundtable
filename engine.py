@@ -18,9 +18,11 @@ Flow:
       -> (continue) in_round ... -> (wrap up) wrapping_up -> done
 
 A round = each participant speaks `exchanges_per_round` times, in turn order.
-After each round an Opus summary lists agreements / discrepancies / eurekas /
-open questions, then the debate pauses for the moderator. Interjections can
-arrive at any time and are inserted into the transcript before the next turn.
+After each round a summary lists agreements / discrepancies / eurekas /
+open questions, then the debate pauses for the moderator. The summary and
+verdict models are chosen per debate (None = auto-pick a connected one).
+Interjections can arrive at any time and are inserted into the transcript
+before the next turn.
 """
 
 import asyncio
@@ -30,7 +32,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from clients import call_model, ModelCallError
+from clients import call_model, call_with_fallback, resolve_model, ModelCallError
 
 TRANSCRIPTS_DIR = Path(__file__).parent / "transcripts"
 
@@ -55,8 +57,13 @@ def _load_prompt_overrides() -> dict:
 
 PROMPT_OVERRIDES = _load_prompt_overrides()
 
-SUMMARY_MODEL = ("claude", "opus")
-VERDICT_MODEL = ("claude", "opus")
+# Who writes the round summaries and the final verdict. Both are per-debate
+# settings chosen in the UI, not constants: hardcoding Claude here meant that
+# anyone without a Claude subscription got a debate with no summaries and no
+# verdict — i.e. everything this app exists to produce. None means "auto",
+# resolved against whichever providers are actually connected.
+DEFAULT_SUMMARY_MODEL = None
+DEFAULT_VERDICT_MODEL = None
 
 WORD_LIMIT = 250
 
@@ -121,10 +128,13 @@ class DebateEngine:
         self._task: asyncio.Task | None = None
         self.session_file: Path | None = None
         self.reference_material = ""
+        self.summary_model = DEFAULT_SUMMARY_MODEL
+        self.verdict_model = DEFAULT_VERDICT_MODEL
 
     # ---------- public API (called from the websocket handler) ----------
 
-    def start(self, topic: str, participants: list[dict], exchanges_per_round: int, force: bool = False, reference_material: str = ""):
+    def start(self, topic: str, participants: list[dict], exchanges_per_round: int, force: bool = False,
+              reference_material: str = "", summary_model=None, verdict_model=None):
         if self.state not in ("configuring", "done"):
             if not force:
                 raise RuntimeError("debate already running")
@@ -137,6 +147,9 @@ class DebateEngine:
         self.participants = [Participant(**p) for p in participants]
         self.exchanges_per_round = max(1, int(exchanges_per_round))
         self.reference_material = reference_material.strip()
+        # Assigned after the __init__ reset above, which wipes every attribute.
+        self.summary_model = summary_model
+        self.verdict_model = verdict_model
         TRANSCRIPTS_DIR.mkdir(exist_ok=True)
         stamp = time.strftime("%Y-%m-%d %H%M")
         safe_topic = "".join(c for c in self.topic[:40] if c.isalnum() or c in " -_").strip() or "debate"
@@ -154,6 +167,13 @@ class DebateEngine:
         if self.state != "moderator_checkpoint":
             raise RuntimeError("not at a checkpoint")
         self._task = asyncio.create_task(self._run_round())
+
+    def set_meta_models(self, summary_model=None, verdict_model=None):
+        """Changeable mid-debate: the meta-turns resolve their model when they
+        run, so a change at a checkpoint applies from the next round on."""
+        self.summary_model = summary_model
+        self.verdict_model = verdict_model
+        self._save()
 
     def wrap_up(self):
         """From a checkpoint: synthesize now. Mid-round: finish round then synthesize."""
@@ -183,8 +203,15 @@ class DebateEngine:
             "state": self.state,
             "messages": [m.to_dict() for m in self.messages],
             "reference_material": self.reference_material,
+            "summary_model": self.summary_model,
+            "verdict_model": self.verdict_model,
         }
         self.session_file.write_text(json.dumps(data, ensure_ascii=False, indent=1))
+
+    def _meta_candidates(self, spec):
+        """Models to try for a summary/verdict turn. An 'auto' spec prefers the
+        providers already in this debate, since those are known-configured."""
+        return resolve_model(spec, prefer_providers=[p.provider for p in self.participants])
 
     def _reference_block(self) -> str:
         if not self.reference_material:
@@ -302,11 +329,13 @@ Use exactly these markdown sections, in this order:
         await self._set_state("round_summary")
         await self.emit({"type": "thinking", "speaker": "Round Summary"})
         try:
-            provider, model = SUMMARY_MODEL
-            text = await call_model(provider, self._summary_prompt(), model)
+            text, provider, model = await call_with_fallback(
+                self._meta_candidates(self.summary_model), self._summary_prompt())
             level = parse_convergence(text)
-            await self._add(Message("Round Summary", text, "summary", self.round_num,
-                                    meta={"convergence": level} if level else None))
+            meta = {"model": f"{provider}/{model}"}
+            if level:
+                meta["convergence"] = level
+            await self._add(Message("Round Summary", text, "summary", self.round_num, meta=meta))
         except ModelCallError as e:
             await self._add(Message("System", f"summary failed: {e}", "error", self.round_num))
 
@@ -319,9 +348,10 @@ Use exactly these markdown sections, in this order:
         await self._set_state("wrapping_up")
         await self.emit({"type": "thinking", "speaker": "Final Verdict"})
         try:
-            provider, model = VERDICT_MODEL
-            text = await call_model(provider, self._verdict_prompt(), model)
-            await self._add(Message("Final Verdict", text, "verdict", self.round_num))
+            text, provider, model = await call_with_fallback(
+                self._meta_candidates(self.verdict_model), self._verdict_prompt())
+            await self._add(Message("Final Verdict", text, "verdict", self.round_num,
+                                    meta={"model": f"{provider}/{model}"}))
         except ModelCallError as e:
             await self._add(Message("System", f"verdict failed: {e}", "error", self.round_num))
         await self._set_state("done")
@@ -340,6 +370,8 @@ class StoredSession:
     exchanges_per_round: int
     participants: list[Participant]
     messages: list[Message]
+    summary_model: dict | None = None
+    verdict_model: dict | None = None
 
 
 def session_from_dict(data: dict) -> StoredSession:
@@ -350,6 +382,8 @@ def session_from_dict(data: dict) -> StoredSession:
         exchanges_per_round=data.get("exchanges_per_round", 2),
         participants=[Participant(**p) for p in data.get("participants", [])],
         messages=[Message(**m) for m in data.get("messages", [])],
+        summary_model=data.get("summary_model"),
+        verdict_model=data.get("verdict_model"),
     )
 
 
@@ -371,7 +405,9 @@ def render_markdown(session) -> str:
         elif m.kind == "moderator":
             lines += [f"> **Moderator:** {m.content}", ""]
         elif m.kind == "summary":
-            lines += [f"### Round {m.round} Summary", "", m.content, ""]
+            by = f" *(by {m.meta['model']})*" if m.meta and m.meta.get("model") else ""
+            lines += [f"### Round {m.round} Summary{by}", "", m.content, ""]
         elif m.kind == "verdict":
-            lines += ["", "## Final Verdict", "", m.content, ""]
+            by = f" *(by {m.meta['model']})*" if m.meta and m.meta.get("model") else ""
+            lines += ["", f"## Final Verdict{by}", "", m.content, ""]
     return "\n".join(lines)

@@ -145,8 +145,18 @@ def load_session(session_id: str):
         return None
 
 
+def _meta_models_label(eng) -> str:
+    """Confirmation text for a mid-debate model change. Goes into the
+    transcript so it's visible later why round 3 reads unlike round 2."""
+    def fmt(spec):
+        return f"{spec['provider']}/{spec['model']}" if spec else "auto"
+    return f"Summary model: {fmt(eng.summary_model)} · Verdict model: {fmt(eng.verdict_model)}"
+
+
 async def send_provider_status(ws: WebSocket):
     providers = list(PROVIDERS)
+    # check_status writes clients.LAST_STATUS, which is what auto-resolution
+    # reads — so the Accounts panel refresh doubles as the availability probe.
     results = await asyncio.gather(*(check_status(p) for p in providers))
     await ws.send_text(json.dumps({
         "type": "provider_status",
@@ -218,6 +228,8 @@ async def ws_endpoint(ws: WebSocket):
         "presets": load_presets(),
         "sessions": list_sessions(),
         "models": PROVIDERS,
+        "summary_model": engine.summary_model,
+        "verdict_model": engine.verdict_model,
         "login_hints": LOGIN_HINTS,
     }, ensure_ascii=False))
     asyncio.create_task(send_provider_status(ws))
@@ -233,11 +245,16 @@ async def handle(ws: WebSocket, data: dict):
     action = data.get("action")
     try:
         if action == "start":
-            engine.start(data["topic"], data["participants"], data.get("exchanges_per_round", 2), data.get("force", False), data.get("reference_material", ""))
+            engine.start(data["topic"], data["participants"], data.get("exchanges_per_round", 2),
+                         data.get("force", False), data.get("reference_material", ""),
+                         summary_model=data.get("summary_model"), verdict_model=data.get("verdict_model"))
         elif action == "interject":
             await engine.interject(data["text"])
         elif action == "continue":
             engine.continue_round()
+        elif action == "set_meta_models":
+            engine.set_meta_models(data.get("summary_model"), data.get("verdict_model"))
+            await broadcast({"type": "system", "text": _meta_models_label(engine)})
         elif action == "wrap_up":
             engine.wrap_up()
             await broadcast({"type": "system", "text": "Wrap-up requested — final verdict after current step."})
@@ -245,7 +262,9 @@ async def handle(ws: WebSocket, data: dict):
             # Only ever writes the gitignored local file — never the tracked
             # defaults, so a saved lineup can't end up staged for commit.
             local = [p for p in _read_presets(PERSONAS_LOCAL_FILE) if p["name"] != data["name"]]
-            local.append({"name": data["name"], "participants": data["participants"]})
+            local.append({"name": data["name"], "participants": data["participants"],
+                          "summary_model": data.get("summary_model"),
+                          "verdict_model": data.get("verdict_model")})
             _write_local_presets(local)
             await broadcast({"type": "presets", "presets": load_presets()})
             await broadcast({"type": "system", "text": f"Saved preset \"{data['name']}\""})

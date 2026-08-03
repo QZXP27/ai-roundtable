@@ -63,9 +63,15 @@ Browser (WebSocket)  <->  FastAPI server  <->  DebateEngine  <->  claude -p / ag
 - **Live moderation** — interject at any point; your message is inserted
   into the transcript before the next model turn, so every participant sees
   and reacts to it.
-- **Round summaries** — after each round, an Opus-authored recap of
-  agreements, live disagreements, novel insights, and open questions, then
-  the debate pauses for you.
+- **Round summaries** — after each round, a recap of agreements, live
+  disagreements, novel insights, and open questions, then the debate pauses
+  for you.
+- **Pick who judges** — the summary and verdict models are chosen in the UI,
+  independently of the debaters, and can be changed mid-debate (a change at a
+  checkpoint applies from the next round). They default to **Auto**, which
+  resolves to a provider you actually have connected — so the app produces
+  summaries and a verdict even with only one provider set up. Every summary
+  and verdict records which model wrote it, in the UI and in exports.
 - **Decision closure** — every round is tagged `unanimous` / `leaning` /
   `split` / `contested` and names the single crux that would settle the
   disagreement; the wrap-up leads with one committed recommendation and a
@@ -89,9 +95,9 @@ Browser (WebSocket)  <->  FastAPI server  <->  DebateEngine  <->  claude -p / ag
   across reloads.
 - **Accounts panel** — shows each provider's connection status at a glance,
   with the exact terminal command to log in and a re-check button.
-- **Tiered model economics** — debate turns default to cheaper/faster
-  models; summaries and verdicts use Opus, where synthesis quality matters
-  most. Only DeepSeek turns cost money, and at ~1% of frontier pricing.
+- **Tiered model economics** — use cheap/fast models for debate turns and a
+  stronger one for the verdict, where synthesis quality matters most. Only
+  DeepSeek turns cost money, and at ~1% of frontier pricing.
 
 ## Requirements
 
@@ -158,8 +164,8 @@ see the exact command to run in your terminal — copy it, run it, then hit
    pick exchanges per round. Optionally attach reference PDFs.
 3. **Start debate** — participants take turns; each sees the full
    transcript so far, including your interjections.
-4. After each round: an Opus-written summary, then the debate pauses for
-   you.
+4. After each round: a summary from your chosen summary model (Auto by
+   default), then the debate pauses for you.
 5. Type in the composer at any time to interject as Moderator; **Continue
    round** or **Wrap up**.
 6. Wrap-up produces a final verdict weighing all perspectives. **Export to
