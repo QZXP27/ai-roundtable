@@ -79,8 +79,17 @@ class Participant:
 # How settled the round was, parsed off the summary. Drives the badge that
 # tells the moderator at a glance whether this still needs their judgement.
 CONVERGENCE_LEVELS = ("unanimous", "leaning", "split", "contested")
+# The prompt tells the model to keep this one line in English even when the
+# rest of the summary is translated, but a translated label is a silent
+# failure (no badge, no error), so accept the likely Chinese renderings too.
+# The *value* stays English in every case — it doubles as a CSS class.
+_CONVERGENCE_LABEL = r"(?:Convergence|共识程度|收敛度|收敛|共识)"
 _CONVERGENCE_RE = re.compile(
-    r"\*{0,2}Convergence:?\*{0,2}\s*:?\s*\**\s*(" + "|".join(CONVERGENCE_LEVELS) + r")\b",
+    # Anything between the label and the value that is only punctuation the
+    # model might decorate with: colons (ASCII or full-width), asterisks,
+    # whitespace. Avoids caring about the order it puts them in.
+    r"\*{0,2}" + _CONVERGENCE_LABEL + r"[\s:\uff1a*]*("
+    + "|".join(CONVERGENCE_LEVELS) + r")\b",
     re.IGNORECASE,
 )
 
@@ -130,11 +139,14 @@ class DebateEngine:
         self.reference_material = ""
         self.summary_model = DEFAULT_SUMMARY_MODEL
         self.verdict_model = DEFAULT_VERDICT_MODEL
+        self.summary_instruction = ""
+        self.verdict_instruction = ""
 
     # ---------- public API (called from the websocket handler) ----------
 
     def start(self, topic: str, participants: list[dict], exchanges_per_round: int, force: bool = False,
-              reference_material: str = "", summary_model=None, verdict_model=None):
+              reference_material: str = "", summary_model=None, verdict_model=None,
+              summary_instruction: str = "", verdict_instruction: str = ""):
         if self.state not in ("configuring", "done"):
             if not force:
                 raise RuntimeError("debate already running")
@@ -150,6 +162,8 @@ class DebateEngine:
         # Assigned after the __init__ reset above, which wipes every attribute.
         self.summary_model = summary_model
         self.verdict_model = verdict_model
+        self.summary_instruction = summary_instruction or ""
+        self.verdict_instruction = verdict_instruction or ""
         TRANSCRIPTS_DIR.mkdir(exist_ok=True)
         stamp = time.strftime("%Y-%m-%d %H%M")
         safe_topic = "".join(c for c in self.topic[:40] if c.isalnum() or c in " -_").strip() or "debate"
@@ -168,11 +182,15 @@ class DebateEngine:
             raise RuntimeError("not at a checkpoint")
         self._task = asyncio.create_task(self._run_round())
 
-    def set_meta_models(self, summary_model=None, verdict_model=None):
-        """Changeable mid-debate: the meta-turns resolve their model when they
-        run, so a change at a checkpoint applies from the next round on."""
+    def set_meta_models(self, summary_model=None, verdict_model=None,
+                        summary_instruction: str = "", verdict_instruction: str = ""):
+        """Changeable mid-debate: the meta-turns build their prompt and resolve
+        their model when they run, so a change at a checkpoint applies from the
+        next round on."""
         self.summary_model = summary_model
         self.verdict_model = verdict_model
+        self.summary_instruction = summary_instruction or ""
+        self.verdict_instruction = verdict_instruction or ""
         self._save()
 
     def wrap_up(self):
@@ -205,6 +223,8 @@ class DebateEngine:
             "reference_material": self.reference_material,
             "summary_model": self.summary_model,
             "verdict_model": self.verdict_model,
+            "summary_instruction": self.summary_instruction,
+            "verdict_instruction": self.verdict_instruction,
         }
         self.session_file.write_text(json.dumps(data, ensure_ascii=False, indent=1))
 
@@ -264,10 +284,20 @@ Now write your next contribution as {p.name}. Rules:
 - Bring at least one new argument, piece of evidence, or probing question; do not repeat yourself.
 - Under {WORD_LIMIT} words. Reply with ONLY your message text (no name prefix, no preamble)."""
 
+    def _instruction_block(self, text: str) -> str:
+        """Moderator's own brief for a meta-turn, if they wrote one. Placed
+        after the section spec so it can override the defaults above it."""
+        text = (text or "").strip()
+        if not text:
+            return ""
+        return f"\nAdditional instructions from the moderator — follow these, and let them override the guidance above where they conflict:\n{text}\n"
+
     def _summary_prompt(self) -> str:
+        instruction_block = self._instruction_block(self.summary_instruction)
         custom = self._override(
             "summary", topic=self.topic, reference=self._reference_block(),
             transcript=self._transcript_text(), round_num=self.round_num,
+            instruction=self.summary_instruction or "",
         )
         if custom:
             return custom
@@ -276,23 +306,29 @@ Now write your next contribution as {p.name}. Rules:
 {self._reference_block()}Discussion so far:
 {self._transcript_text()}
 
-Write a summary of round {self.round_num} ONLY (the latest exchanges), for the human moderator. Use exactly these markdown sections:
-**Agreements** — points where participants now converge.
-**Discrepancies** — live disagreements, stated as opposing positions with who holds each.
-**Eureka insights** — genuinely novel ideas or reframings that emerged, if any (say "none" if none).
-**Open questions** — what the moderator could steer toward next.
-**Crux** — the SINGLE sub-question that, if answered, would settle the disagreement. One sentence. Pick the one that actually decides the matter, not the most-discussed one. If the participants genuinely agree, say what would have to be true for them to be wrong.
+LANGUAGE: write your entire reply in the same language the participants are debating in — match the transcript above, not the language of these instructions. This includes the section headings: translate the heading names below into that language. The headings are described here by meaning, not by their literal English wording.
 
+Write a summary of round {self.round_num} ONLY (the latest exchanges), for the human moderator. Use exactly these markdown sections, in this order, as bold headings:
+1. Agreements — points where participants now converge.
+2. Discrepancies — live disagreements, stated as opposing positions with who holds each.
+3. Eureka insights — genuinely novel ideas or reframings that emerged, if any (say so if none).
+4. Open questions — what the moderator could steer toward next.
+5. Crux — the SINGLE sub-question that, if answered, would settle the disagreement. One sentence. Pick the one that actually decides the matter, not the most-discussed one. If the participants genuinely agree, say what would have to be true for them to be wrong.
+{instruction_block}
 Be concrete and cite participants by name. Under 200 words total.
 
 Then end your reply with this as the final line, and nothing after it:
 **Convergence:** one of unanimous | leaning | split | contested
-(unanimous = they agree on substance; leaning = one position is clearly winning; split = two coherent camps; contested = still genuinely unresolved.)"""
+(unanimous = they agree on substance; leaning = one position is clearly winning; split = two coherent camps; contested = still genuinely unresolved.)
+
+This final line is the ONE exception to the language rule: it is read by software, so the word "Convergence" and the chosen value must stay in English exactly as written, even when the rest of your reply is in another language."""
 
     def _verdict_prompt(self) -> str:
+        instruction_block = self._instruction_block(self.verdict_instruction)
         custom = self._override(
             "verdict", topic=self.topic, reference=self._reference_block(),
             transcript=self._transcript_text(),
+            instruction=self.verdict_instruction or "",
         )
         if custom:
             return custom
@@ -305,11 +341,14 @@ Produce the final output for the human moderator. It must weigh ALL participants
 
 You must COMMIT. The moderator came here to stop deliberating, so a balanced restatement of both sides is a failed verdict. If the question is close, pick the better answer anyway and mark your confidence low — that is far more useful than a hedge.
 
-Use exactly these markdown sections, in this order:
-**Decision** — the single recommended action, in ONE sentence, stated first. No "it depends", no listing of options, no deferring back to the moderator.
-**Confidence:** high | medium | low — followed by one line on why, grounded in whether the participants actually converged.
-**Why** — the surviving arguments that support the decision, i.e. the strongest form of each perspective after challenge.
-**What would change this** — the specific evidence or condition that would flip the decision. Be concrete enough that the moderator could go check it."""
+LANGUAGE: write your entire reply in the same language the participants are debating in — match the transcript above, not the language of these instructions. This includes the section headings and the confidence value: translate them into that language. The headings are described here by meaning, not by their literal English wording.
+
+Use exactly these markdown sections, in this order, as bold headings:
+1. Decision — the single recommended action, in ONE sentence, stated first. No "it depends", no listing of options, no deferring back to the moderator.
+2. Confidence — high, medium or low, followed by one line on why, grounded in whether the participants actually converged.
+3. Why — the surviving arguments that support the decision, i.e. the strongest form of each perspective after challenge.
+4. What would change this — the specific evidence or condition that would flip the decision. Be concrete enough that the moderator could go check it.
+{instruction_block}"""
 
     async def _speak(self, p: Participant):
         await self.emit({"type": "thinking", "speaker": p.name})
@@ -372,6 +411,8 @@ class StoredSession:
     messages: list[Message]
     summary_model: dict | None = None
     verdict_model: dict | None = None
+    summary_instruction: str = ""
+    verdict_instruction: str = ""
 
 
 def session_from_dict(data: dict) -> StoredSession:
@@ -384,6 +425,8 @@ def session_from_dict(data: dict) -> StoredSession:
         messages=[Message(**m) for m in data.get("messages", [])],
         summary_model=data.get("summary_model"),
         verdict_model=data.get("verdict_model"),
+        summary_instruction=data.get("summary_instruction", ""),
+        verdict_instruction=data.get("verdict_instruction", ""),
     )
 
 

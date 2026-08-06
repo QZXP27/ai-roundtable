@@ -150,7 +150,10 @@ def _meta_models_label(eng) -> str:
     transcript so it's visible later why round 3 reads unlike round 2."""
     def fmt(spec):
         return f"{spec['provider']}/{spec['model']}" if spec else "auto"
-    return f"Summary model: {fmt(eng.summary_model)} · Verdict model: {fmt(eng.verdict_model)}"
+    parts = [f"Summary model: {fmt(eng.summary_model)}", f"Verdict model: {fmt(eng.verdict_model)}"]
+    if eng.summary_instruction or eng.verdict_instruction:
+        parts.append("custom instructions applied")
+    return " · ".join(parts)
 
 
 async def send_provider_status(ws: WebSocket):
@@ -230,6 +233,8 @@ async def ws_endpoint(ws: WebSocket):
         "models": PROVIDERS,
         "summary_model": engine.summary_model,
         "verdict_model": engine.verdict_model,
+        "summary_instruction": engine.summary_instruction,
+        "verdict_instruction": engine.verdict_instruction,
         "login_hints": LOGIN_HINTS,
     }, ensure_ascii=False))
     asyncio.create_task(send_provider_status(ws))
@@ -247,13 +252,17 @@ async def handle(ws: WebSocket, data: dict):
         if action == "start":
             engine.start(data["topic"], data["participants"], data.get("exchanges_per_round", 2),
                          data.get("force", False), data.get("reference_material", ""),
-                         summary_model=data.get("summary_model"), verdict_model=data.get("verdict_model"))
+                         summary_model=data.get("summary_model"), verdict_model=data.get("verdict_model"),
+                         summary_instruction=data.get("summary_instruction", ""),
+                         verdict_instruction=data.get("verdict_instruction", ""))
         elif action == "interject":
             await engine.interject(data["text"])
         elif action == "continue":
             engine.continue_round()
         elif action == "set_meta_models":
-            engine.set_meta_models(data.get("summary_model"), data.get("verdict_model"))
+            engine.set_meta_models(data.get("summary_model"), data.get("verdict_model"),
+                                   data.get("summary_instruction", ""),
+                                   data.get("verdict_instruction", ""))
             await broadcast({"type": "system", "text": _meta_models_label(engine)})
         elif action == "wrap_up":
             engine.wrap_up()
@@ -264,7 +273,9 @@ async def handle(ws: WebSocket, data: dict):
             local = [p for p in _read_presets(PERSONAS_LOCAL_FILE) if p["name"] != data["name"]]
             local.append({"name": data["name"], "participants": data["participants"],
                           "summary_model": data.get("summary_model"),
-                          "verdict_model": data.get("verdict_model")})
+                          "verdict_model": data.get("verdict_model"),
+                          "summary_instruction": data.get("summary_instruction", ""),
+                          "verdict_instruction": data.get("verdict_instruction", "")})
             _write_local_presets(local)
             await broadcast({"type": "presets", "presets": load_presets()})
             await broadcast({"type": "system", "text": f"Saved preset \"{data['name']}\""})

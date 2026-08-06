@@ -66,6 +66,15 @@ Browser (WebSocket)  <->  FastAPI server  <->  DebateEngine  <->  claude -p / ag
 - **Round summaries** — after each round, a recap of agreements, live
   disagreements, novel insights, and open questions, then the debate pauses
   for you.
+- **Writes in the debate's language** — summaries and verdicts follow the
+  language the participants are actually using, section headings included, so
+  a Chinese debate doesn't come back with English headings over Chinese text.
+  (One deliberate exception: the machine-read `**Convergence:**` line stays in
+  English, because the app parses it to draw the badge.)
+- **Instructions per judge** — a collapsed box under each of the two model
+  pickers takes free-text direction for that role: tone, length, language,
+  what to focus on. Editable mid-debate like the model choice, and saved with
+  presets. Leave both empty and the defaults above still do the right thing.
 - **Pick who judges** — the summary and verdict models are chosen in the UI,
   independently of the debaters, and can be changed mid-debate (a change at a
   checkpoint applies from the next round). They default to **Auto**, which
@@ -211,7 +220,10 @@ can't be committed by accident:
   The tracked `personas.default.json` is only the starter set; a local preset
   with the same name overrides it.
 - **`prompts.local.json`** — optional. Keys `turn`, `summary`, `verdict`
-  replace the built-in prompt templates. Each is `.format()`-ed with the same
+  replace the built-in prompt templates. Read once at startup, so restart the
+  server after editing. For small tweaks prefer the in-UI instruction boxes —
+  they apply live and don't fork the whole prompt.
+  Replaced templates receive the same named fields as the defaults. Each is `.format()`-ed with the same
   named fields the defaults use (see the `_*_prompt` methods in `engine.py`).
   A malformed template falls back to the built-in rather than breaking a
   debate mid-round.

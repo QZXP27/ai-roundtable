@@ -116,6 +116,9 @@
   .mrow{display:flex;gap:6px;align-items:center;margin-bottom:6px}
   .mrow .mtag{font-size:11px;color:var(--muted);flex:none;width:56px}
   .mrow select{flex:1;min-width:0}
+  .mrow .itoggle{flex:none;width:26px;background:var(--panel2);color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:6px 0;font:inherit;font-size:13px;line-height:1;cursor:pointer}
+  .mrow .itoggle.on{color:var(--accent);border-color:var(--accent)}
+  textarea.instr{margin:-2px 0 8px;font-size:12px}
   .hint{font-size:11px;color:var(--muted);margin-top:2px}
   #srcLink{margin:2px 0 10px;font-size:11px}
   #srcLink a{color:var(--muted);text-decoration:none} #srcLink a:hover{color:var(--accent)}
@@ -163,11 +166,15 @@
     <div class="mrow">
       <span class="mtag" id="lbl-summaryModel"></span>
       <select id="sumProv"></select><select id="sumModel"></select>
+      <button type="button" class="itoggle" id="sumToggle" onclick="toggleInstr('sum')" title="instructions">+</button>
     </div>
+    <textarea id="sumInstr" class="instr" rows="2" hidden></textarea>
     <div class="mrow">
       <span class="mtag" id="lbl-verdictModel"></span>
       <select id="verProv"></select><select id="verModel"></select>
+      <button type="button" class="itoggle" id="verToggle" onclick="toggleInstr('ver')" title="instructions">+</button>
     </div>
+    <textarea id="verInstr" class="instr" rows="2" hidden></textarea>
     <div class="hint" id="metaHint"></div>
   </div>
   <div>
@@ -248,6 +255,8 @@ const LABELS={
     metaModels:"Who writes the summary and verdict",
     summaryModel:"Summary", verdictModel:"Verdict", autoModel:"Auto",
     metaHint:"Auto picks a connected provider. Changes apply from the next round.",
+    instrPlaceholder:"Optional instructions — tone, length, language, what to focus on…",
+    convLabel:{unanimous:"unanimous",leaning:"leaning",split:"split",contested:"contested"},
     metaChanged:"Summary/verdict model updated.",
     byModel:m=>`by ${m}`,
     reference:"Reference material (PDF, optional)",
@@ -291,6 +300,8 @@ const LABELS={
     metaModels:"由谁撰写总结与结论",
     summaryModel:"总结", verdictModel:"结论", autoModel:"自动",
     metaHint:"「自动」会挑选一个已连接的供应商。修改从下一轮开始生效。",
+    instrPlaceholder:"可选的额外要求——语气、长度、语言、重点关注什么……",
+    convLabel:{unanimous:"一致",leaning:"倾向",split:"对立",contested:"争议"},
     metaChanged:"已更新总结/结论所用模型。",
     byModel:m=>`由 ${m} 生成`,
     participants:"参与者", addParticipant:"+ 添加参与者",
@@ -426,7 +437,8 @@ function connect(){
     const d=JSON.parse(e.data);
     if(d.type==="init"){
       models=d.models;
-      renderMetaModels({summary_model:d.summary_model,verdict_model:d.verdict_model});
+      renderMetaModels({summary_model:d.summary_model,verdict_model:d.verdict_model,
+                        summary_instruction:d.summary_instruction||"",verdict_instruction:d.verdict_instruction||""});
       loginHints=d.login_hints||{};
       $("chat").innerHTML="";
       (d.participants||[]).forEach(p=>providerOf[p.name]=p.provider);
@@ -488,7 +500,8 @@ function addMsg(m){
   let badge=m.kind==="turn"&&providerOf[m.speaker]?`<span class="badge">${providerOf[m.speaker]}</span>`:"";
   // Summaries carry how settled the round was, when the summariser reported it.
   const conv=m.meta&&m.meta.convergence;
-  if(conv)badge+=`<span class="conv ${esc(conv)}">${esc(conv)}</span>`;
+  // Class stays the English token (CSS is keyed on it); only the label localises.
+  if(conv)badge+=`<span class="conv ${esc(conv)}">${esc(t('convLabel')[conv]||conv)}</span>`;
   // Which model produced this summary/verdict — matters now that it's chosen.
   const by=m.meta&&m.meta.model;
   if(by&&(m.kind==="summary"||m.kind==="verdict"))badge+=`<span class="badge" style="background:var(--${esc(by.split('/')[0])},var(--muted))">${esc(t('byModel')(by))}</span>`;
@@ -556,9 +569,21 @@ function readMetaSpec(provSel,modSel){
   if(provSel.value===AUTO)return null;
   return {provider:provSel.value,model:modSel.value};
 }
+// Instruction boxes stay collapsed until asked for, so the sidebar doesn't
+// grow for the majority who never touch them — but auto-open when non-empty
+// so a loaded preset never hides settings that are actually in effect.
+function toggleInstr(which,force){
+  const ta=$(which+"Instr"), btn=$(which+"Toggle");
+  const open=force!==undefined?force:ta.hidden;
+  ta.hidden=!open; btn.textContent=open?"−":"+";
+  btn.classList.toggle("on",open&&!!ta.value.trim());
+  if(open)ta.focus();
+}
 function readMetaModels(){
   return {summary_model:readMetaSpec($("sumProv"),$("sumModel")),
-          verdict_model:readMetaSpec($("verProv"),$("verModel"))};
+          verdict_model:readMetaSpec($("verProv"),$("verModel")),
+          summary_instruction:$("sumInstr").value.trim(),
+          verdict_instruction:$("verInstr").value.trim()};
 }
 // The participants editor is only read at start, but these apply live — a
 // change at a checkpoint takes effect from the next round's summary onward.
@@ -569,6 +594,15 @@ function pushMetaModels(){
 function renderMetaModels(spec){
   fillMetaSelect($("sumProv"),$("sumModel"),spec&&spec.summary_model);
   fillMetaSelect($("verProv"),$("verModel"),spec&&spec.verdict_model);
+  [["sum","summary_instruction"],["ver","verdict_instruction"]].forEach(([k,field])=>{
+    const ta=$(k+"Instr");
+    if(spec&&spec[field]!==undefined)ta.value=spec[field]||"";
+    ta.placeholder=t('instrPlaceholder');
+    // onchange, not oninput — otherwise a live debate gets a socket message
+    // on every keystroke.
+    ta.onchange=()=>{$(k+"Toggle").classList.toggle("on",!!ta.value.trim());pushMetaModels();};
+    if(ta.value.trim())toggleInstr(k,true);
+  });
 }
 function readParticipants(){
   return [...$("plist").children].map(r=>({
@@ -595,7 +629,8 @@ function renderPresets(presets){
 function applyPreset(p){
   $("plist").innerHTML="";
   (p.participants||[]).forEach(addParticipant);
-  renderMetaModels({summary_model:p.summary_model,verdict_model:p.verdict_model});
+  renderMetaModels({summary_model:p.summary_model,verdict_model:p.verdict_model,
+                    summary_instruction:p.summary_instruction||"",verdict_instruction:p.verdict_instruction||""});
 }
 function savePreset(){
   const name=(prompt(t('presetNamePrompt'))||"").trim();
